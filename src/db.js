@@ -18,11 +18,19 @@ import 'dotenv/config';
 // The connection "pool": a small set of reusable DB connections.
 export const pool = mysql.createPool({
   host: process.env.DB_HOST,
+  port: process.env.DB_PORT || 3306,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   connectionLimit: 10,
   dateStrings: true, // dates stay as 'YYYY-MM-DD' text, no timezone shifting
+  // Cloud hosts like Aiven force encrypted connections (ssl-mode=REQUIRED).
+  // This "trust any certificate" setup is fine for the project demo; the
+  // stricter option is pinning Aiven's CA certificate instead.
+  ssl:
+    process.env.DB_SSL === 'true' || process.env.DB_SSL === '1'
+      ? { rejectUnauthorized: false }
+      : undefined,
 });
 
 // A simple error class that carries an HTTP status code with it.

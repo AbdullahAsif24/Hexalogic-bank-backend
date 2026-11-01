@@ -16,8 +16,22 @@ import reportRoutes from './routes/reports.js';
 const app = express();
 
 // ----- middleware -----
-// CORS: only the frontend dev server may call this API from a browser.
-app.use(cors({ origin: 'http://localhost:5173' })); // Vite dev server
+// CORS: which web origins may call this API from a browser?
+// Comma-separated list in .env, e.g.:
+//   CORS_ORIGIN=https://hexalogic-bank.vercel.app,http://localhost:5173
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
+  .split(',')
+  .map((o) => o.trim());
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // no Origin header (e.g. Postman, server tools) -> always allowed
+      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+      callback(new HttpError(403, 'Origin not allowed'));
+    },
+  })
+);
 app.use(express.json()); // read JSON bodies
 
 // ----- simple health check (no database needed) -----

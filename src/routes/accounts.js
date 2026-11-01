@@ -55,6 +55,26 @@ router.patch('/accounts/:id/status', manager, async (req, res) => {
   res.json({ message: 'Status updated' });
 });
 
+// ---------- search customers (teller/manager) ----------
+// GET /customers?q=<CNIC or name or phone>
+// Used by the staff "Open account" page to pick a customer.
+router.get('/customers', staff, async (req, res) => {
+  const term = parse(
+    z.object({ q: z.string().min(1, 'Type at least one character') }),
+    req.query
+  ).q.trim();
+  const like = `%${term}%`;
+  const rows = await query(
+    `SELECT customer_id, name, cnic, phone
+       FROM customer
+      WHERE (cnic LIKE ? OR name LIKE ? OR phone LIKE ?)
+      ORDER BY customer_id
+      LIMIT 10`,
+    [like, like, like]
+  );
+  res.json(rows);
+});
+
 // ---------- list accounts ----------
 // Customer  -> only their own accounts (from v_customer_accounts)
 // Staff     -> the whole bank (from v_account_summary)

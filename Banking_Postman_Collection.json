@@ -1,0 +1,494 @@
+{
+	"info": {
+		"name": "Banking System API",
+		"description": "Test collection for the Banking System backend (Node + Express + MySQL procedures).\n\n1. Start backend: npm run dev (http://localhost:8000)\n2. POST /auth/login with a real username/password -> the token is saved automatically\n3. Every other request then uses the saved token automatically.\n\nRoles:\n- customer: transfers, statements, loan apply/pay\n- teller: accounts, deposits, withdrawals, cards, joint holders\n- manager: everything + loan decisions, account status, reports",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{token}}",
+				"type": "string"
+			}
+		]
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8000"
+		},
+		{
+			"key": "token",
+			"value": ""
+		}
+	],
+	"item": [
+		{
+			"name": "0. Health check",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/health",
+					"host": ["{{baseUrl}}"],
+					"path": ["health"]
+				},
+				"description": "No login needed. Expected: {\"ok\":true}. If this fails, the backend is not running."
+			},
+			"response": []
+		},
+		{
+			"name": "1. Auth",
+			"item": [
+				{
+					"name": "Register customer",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"cnic\": \"3520112345678\",\n  \"name\": \"Ali Khan\",\n  \"phone\": \"03001112233\",\n  \"email\": \"ali.khan@example.com\",\n  \"username\": \"alikhan\",\n  \"password\": \"password123\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/register",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "register"]
+						},
+						"description": "Public. Password must be 8+ chars, cnic exactly 13 digits.\nExpected 201: {\"message\":\"Registered\"}\nExpected 409 if CNIC/phone/email/username already used."
+					},
+					"response": []
+				},
+				{
+					"name": "Login (saves token automatically)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Login worked', () => pm.response.to.have.status(200));",
+									"const body = pm.response.json();",
+									"pm.collectionVariables.set('token', body.token);",
+									"console.log('Role:', body.role);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"alikhan\",\n  \"password\": \"password123\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						},
+						"description": "Public. The test script saves the token into the collection variable, so all other requests become authenticated.\nLogin as teller/manager too (seeded users from 06_seed.sql) to test staff endpoints."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "2. Accounts",
+			"item": [
+				{
+					"name": "List my accounts (customer)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/accounts",
+							"host": ["{{baseUrl}}"],
+							"path": ["accounts"]
+						},
+						"description": "Customer: only their accounts. Staff: the whole bank (v_account_summary)."
+					},
+					"response": []
+				},
+				{
+					"name": "Open account (teller/manager)",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"customerId\": 1,\n  \"branchId\": 1,\n  \"accountTypeId\": 1,\n  \"initialDeposit\": \"5000.00\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/accounts",
+							"host": ["{{baseUrl}}"],
+							"path": ["accounts"]
+						},
+						"description": "Staff only. Fails if initial deposit is below the account type's min_balance.\nChange customerId/branchId/accountTypeId to real seeded ids."
+					},
+					"response": []
+				},
+				{
+					"name": "Set account status (manager)",
+					"request": {
+						"method": "PATCH",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"status\": \"frozen\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/accounts/1/status",
+							"host": ["{{baseUrl}}"],
+							"path": ["accounts", "1", "status"]
+						},
+						"description": "Manager only. status = active | frozen | closed.\nClosed account must have zero balance."
+					},
+					"response": []
+				},
+				{
+					"name": "Add joint holder (teller/manager)",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"customerId\": 2\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/accounts/1/joint-holders",
+							"host": ["{{baseUrl}}"],
+							"path": ["accounts", "1", "joint-holders"]
+						},
+						"description": "Adds customer 2 as joint holder of account 1."
+					},
+					"response": []
+				},
+				{
+					"name": "Issue card (teller/manager)",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"cardType\": \"debit\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/accounts/1/cards",
+							"host": ["{{baseUrl}}"],
+							"path": ["accounts", "1", "cards"]
+						},
+						"description": "cardType = debit | credit. Only for active accounts."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "3. Money",
+			"item": [
+				{
+					"name": "Deposit (teller/manager)",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"amount\": \"1000.00\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/accounts/1/deposit",
+							"host": ["{{baseUrl}}"],
+							"path": ["accounts", "1", "deposit"]
+						},
+						"description": "Cash deposit at the counter. Staff only.\nAmounts are STRINGS like \"1000.00\" (never floats)."
+					},
+					"response": []
+				},
+				{
+					"name": "Withdraw (teller/manager)",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"amount\": \"500.00\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/accounts/1/withdraw",
+							"host": ["{{baseUrl}}"],
+							"path": ["accounts", "1", "withdraw"]
+						},
+						"description": "Staff only. Fails if the account would go below min_balance.\nTry more than the balance on purpose to see 'Insufficient balance' (400)."
+					},
+					"response": []
+				},
+				{
+					"name": "Transfer (any logged-in user)",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"fromAccount\": 1,\n  \"toAccount\": 2,\n  \"amount\": \"100.00\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/transfers",
+							"host": ["{{baseUrl}}"],
+							"path": ["transfers"]
+						},
+						"description": "Customers must OWN fromAccount (403 otherwise).\nFailure cases to try: same account for both, more than balance, frozen account."
+					},
+					"response": []
+				},
+				{
+					"name": "Statement of account",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/accounts/1/statement?from=2024-01-01&to=2026-12-31",
+							"host": ["{{baseUrl}}"],
+							"path": ["accounts", "1", "statement"],
+							"query": [
+								{
+									"key": "from",
+									"value": "2024-01-01"
+								},
+								{
+									"key": "to",
+									"value": "2026-12-31"
+								}
+							]
+						},
+						"description": "Dates must be YYYY-MM-DD. Owner (customer or joint holder) and staff only."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "4. Loans",
+			"item": [
+				{
+					"name": "Apply for loan (customer)",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"branchId\": 1,\n  \"principal\": \"100000.00\",\n  \"termMonths\": 24\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/loans",
+							"host": ["{{baseUrl}}"],
+							"path": ["loans"]
+						},
+						"description": "Customer only. interest rate is chosen by the server (12.5%), not by the client."
+					},
+					"response": []
+				},
+				{
+					"name": "My loans / all loans",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/loans",
+							"host": ["{{baseUrl}}"],
+							"path": ["loans"]
+						},
+						"description": "Customer: own loans. Staff: every loan (v_loan_status)."
+					},
+					"response": []
+				},
+				{
+					"name": "EMI calculator",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/loans/emi?principal=100000&rate=12.5&months=24",
+							"host": ["{{baseUrl}}"],
+							"path": ["loans", "emi"],
+							"query": [
+								{
+									"key": "principal",
+									"value": "100000"
+								},
+								{
+									"key": "rate",
+									"value": "12.5"
+								},
+								{
+									"key": "months",
+									"value": "24"
+								}
+							]
+						},
+						"description": "No data changed, just calls fn_calc_emi. Compare with the formula in the design PDF."
+					},
+					"response": []
+				},
+				{
+					"name": "Pending loans queue (manager)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/loans/pending",
+							"host": ["{{baseUrl}}"],
+							"path": ["loans", "pending"]
+						},
+						"description": "Manager only. The approval queue (v_pending_loans)."
+					},
+					"response": []
+				},
+				{
+					"name": "Approve / reject loan (manager)",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"approve\": true\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/loans/1/decision",
+							"host": ["{{baseUrl}}"],
+							"path": ["loans", "1", "decision"]
+						},
+						"description": "Manager only. Set the loan id in the URL.\nDeciding the same loan twice -> 'Loan is not pending' (400).\nTry with a teller token -> 'Not allowed' (403)."
+					},
+					"response": []
+				},
+				{
+					"name": "Pay installment (customer)",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"amount\": \"4728.58\",\n  \"fromAccountId\": 1\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/loans/1/payments",
+							"host": ["{{baseUrl}}"],
+							"path": ["loans", "1", "payments"]
+						},
+						"description": "Customer pays from OWN account; loan must be approved.\nSet amount to the EMI you calculated."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "5. Reports (manager)",
+			"item": [
+				{
+					"name": "Branch summary",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/reports/branch-summary",
+							"host": ["{{baseUrl}}"],
+							"path": ["reports", "branch-summary"]
+						},
+						"description": "v_branch_summary: accounts and deposits per branch."
+					},
+					"response": []
+				},
+				{
+					"name": "Daily transactions",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/reports/daily",
+							"host": ["{{baseUrl}}"],
+							"path": ["reports", "daily"]
+						},
+						"description": "v_daily_transactions: count and total per day per txn_type."
+					},
+					"response": []
+				},
+				{
+					"name": "Employee activity",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/reports/employee-activity",
+							"host": ["{{baseUrl}}"],
+							"path": ["reports", "employee-activity"]
+						},
+						"description": "v_employee_activity: transactions handled per employee."
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}

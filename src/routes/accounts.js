@@ -30,14 +30,31 @@ const openSchema = z.object({
 
 router.post('/accounts', staff, async (req, res) => {
   const body = parse(openSchema, req.body);
-  await callProc('sp_open_account', [
+  const rows = await callProc('sp_open_account', [
     body.customerId,
     body.branchId,
     body.accountTypeId,
     body.initialDeposit,
     req.user.employeeId, // the teller/manager who opened it
   ]);
-  res.status(201).json({ message: 'Account opened' });
+  // the procedure returns { account_id, account_number } -> pass it to the UI
+  res.status(201).json({ ...rows[0], message: 'Account opened' });
+});
+
+// ---------- list branches (any logged-in user; loan apply also needs it) ----------
+router.get('/branches', anyUser, async (_req, res) => {
+  const rows = await query(
+    'SELECT branch_id, branch_code, branch_name, city FROM branch ORDER BY branch_id'
+  );
+  res.json(rows);
+});
+
+// ---------- list account types (teller/manager) ----------
+router.get('/account-types', staff, async (_req, res) => {
+  const rows = await query(
+    'SELECT account_type_id, type_name, interest_rate, min_balance FROM account_type ORDER BY account_type_id'
+  );
+  res.json(rows);
 });
 
 // ---------- change account status (manager only) ----------

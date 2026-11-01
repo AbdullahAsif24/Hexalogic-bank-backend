@@ -11,7 +11,7 @@
 
 import { Router } from 'express';
 import { z } from 'zod';
-import { callProc } from '../db.js';
+import { callProc, HttpError, query } from '../db.js';
 import { authenticate, requireRole, assertOwnsAccount } from '../auth.js';
 import { money, dateStr, parse, id } from '../validate.js';
 
@@ -43,21 +43,46 @@ router.post('/accounts/:id/withdraw', staff, async (req, res) => {
 });
 
 // ---------- transfer between accounts ----------
+// Resolve a destination that may be given as account ID (e.g. 3) or as
+// account number ("ACC-92610278" or "92610278"). Users think in numbers.
+async function resolveAccountRef(value, label) {
+  // strip 'ACC-' and spaces/spaces left by display formatting, keep digits
+  const digits = String(value).trim().toUpperCase().replace(/^ACC-/, '').replace(/\s+/g, '');
+  if (!/^\d+$/.test(digits)) {
+    throw new HttpError(400, `Invalid ${label} (use the account ID or ACC-number)`);
+  }
+  // 1st try: it is an account_id
+  const byId = await query(
+    'SELECT account_id FROM v_account_summary WHERE account_id = ?',
+    [Number(digits)]
+  );
+  if (byId.length > 0) return Number(digits);
+  // 2nd try: it is digits of an account_number
+  const byNumber = await query(
+    'SELECT account_id FROM v_account_summary WHERE account_number = ?',
+    ['ACC-' + digits]
+  );
+  if (byNumber.length > 0) return byNumber[0].account_id;
+  throw new HttpError(400, `${label} not found`);
+}
+
 // Customers may only transfer FROM an account they own (checked below);
 // staff may transfer from any account.
 router.post('/transfers', anyUser, async (req, res) => {
   const body = parse(
     z.object({
-      fromAccount: z.number().int().positive(),
-      toAccount: z.number().int().positive(),
+      fromAccount: z.union([z.number(), z.string()]),
+      toAccount: z.union([z.number(), z.string()]),
       amount: money,
     }),
     req.body
   );
-  await assertOwnsAccount(req.user, body.fromAccount); // customers: own only
+  const fromId = await resolveAccountRef(body.fromAccount, 'Source account');
+  const toId = await resolveAccountRef(body.toAccount, 'Receiver account');
+  await assertOwnsAccount(req.user, fromId); // customers: own only
   await callProc('sp_transfer_funds', [
-    body.fromAccount,
-    body.toAccount,
+    fromId,
+    toId,
     body.amount,
     req.user.employeeId ?? null, // null = done online by a customer
   ]);

@@ -10,7 +10,10 @@ stored procedure (`CALL sp_...`), every report reads a view
 ```
 backend/
   .env                        DB login, JWT secret, port  (DO NOT commit)
+  .env.example                template documenting every .env variable (commit this one)
   package.json                dependencies and npm scripts
+  seed_staff.sql              creates the manager + teller logins (run as root)
+  Banking_Postman_Collection.json  importable Postman tests for every endpoint
   src/
     index.js                  builds the app, mounts routes, starts server
     db.js                     MySQL pool + callProc()/query() + error translation
@@ -18,7 +21,8 @@ backend/
     validate.js               input validation helpers (money as string, dates, ids)
     routes/
       auth.js                 POST /auth/register, /auth/login
-      accounts.js             open account, list, joint holders, status, cards
+      accounts.js             open account, list, customers search, branches,
+                              account types, joint holders, status, cards
       money.js                deposit, withdraw, transfer, statement
       loans.js                apply, pending queue, decide, pay installment, EMI
       reports.js              manager-only reports from views
@@ -31,22 +35,34 @@ backend/
 Run the SQL files in this order (from the `Banking_DB_SQL_Design.pdf`):
 `01_schema`, `02_indexes`, `03_views`, `04_procedures`, `05_triggers`, `06_seed`.
 
-Then create the limited app user (only procedures + views, no direct table access):
+> On managed hosts like Aiven the free tier has no `CREATE DATABASE` -
+> run everything inside the existing database (`USE defaultdb;` or the
+> database you created in the console) and skip the `CREATE DATABASE` /
+> `USE BankDB;` lines.
+
+Then create the limited app user (only procedures + views, no direct table access).
+Use host `'%'` for cloud connections, `'localhost'` only for local MySQL:
 
 ```sql
-CREATE USER 'bank_app'@'localhost' IDENTIFIED BY 'change_me';
-GRANT EXECUTE ON BankDB.* TO 'bank_app'@'localhost';
-GRANT SELECT ON BankDB.v_account_summary    TO 'bank_app'@'localhost';
-GRANT SELECT ON BankDB.v_customer_accounts  TO 'bank_app'@'localhost';
-GRANT SELECT ON BankDB.v_loan_status        TO 'bank_app'@'localhost';
-GRANT SELECT ON BankDB.v_pending_loans      TO 'bank_app'@'localhost';
-GRANT SELECT ON BankDB.v_branch_summary     TO 'bank_app'@'localhost';
-GRANT SELECT ON BankDB.v_daily_transactions TO 'bank_app'@'localhost';
-GRANT SELECT ON BankDB.v_employee_activity  TO 'bank_app'@'localhost';
-GRANT SELECT ON BankDB.user_account         TO 'bank_app'@'localhost';
-GRANT SELECT ON BankDB.customer_account     TO 'bank_app'@'localhost';
-GRANT SELECT ON BankDB.loan                 TO 'bank_app'@'localhost';
+CREATE USER 'bank_app'@'%' IDENTIFIED BY 'change_me';
+GRANT EXECUTE ON BankDB.* TO 'bank_app'@'%';
+GRANT SELECT ON BankDB.v_account_summary    TO 'bank_app'@'%';
+GRANT SELECT ON BankDB.v_customer_accounts  TO 'bank_app'@'%';
+GRANT SELECT ON BankDB.v_loan_status        TO 'bank_app'@'%';
+GRANT SELECT ON BankDB.v_pending_loans      TO 'bank_app'@'%';
+GRANT SELECT ON BankDB.v_branch_summary     TO 'bank_app'@'%';
+GRANT SELECT ON BankDB.v_daily_transactions TO 'bank_app'@'%';
+GRANT SELECT ON BankDB.v_employee_activity  TO 'bank_app'@'%';
+GRANT SELECT ON BankDB.user_account         TO 'bank_app'@'%';
+GRANT SELECT ON BankDB.customer_account     TO 'bank_app'@'%';
+GRANT SELECT ON BankDB.loan                 TO 'bank_app'@'%';
 ```
+
+Staff logins are NOT created by registration. Run `seed_staff.sql` (as root)
+to get `manager / manager123` and `teller / teller123`, then change those
+passwords (generate a bcrypt hash with
+`node -e "import('bcrypt').then(b=>console.log(b.hashSync('newPassword',10)))"`,
+then `UPDATE user_account SET password_hash='...' WHERE username='...';`).
 
 ## 2. Run the backend
 
@@ -58,7 +74,12 @@ npm run dev        # starts on http://localhost:8000
 If `bcrypt` fails to install on Windows, run `npm i bcryptjs` and change
 the import in `src/auth.js` from `'bcrypt'` to `'bcryptjs'`.
 
-Set your real DB password and JWT secret in `.env` first!
+Set your real DB password and JWT secret in `.env` first
+(see `.env.example` for every variable, including the cloud ones):
+`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_SSL`,
+`JWT_SECRET`, `PORT`, and `CORS_ORIGIN` (comma-separated browser origins
+allowed to call the API from a web page - include localhost and the
+deployed frontend).
 
 ## 3. Try it with Postman / Thunder Client
 
@@ -73,7 +94,10 @@ Set your real DB password and JWT secret in `.env` first!
 | ------------------------------ | ------------------------------- | -------------- |
 | POST /auth/register            | sp_register_customer            | public         |
 | POST /auth/login               | SELECT user_account             | public         |
-| POST /accounts                 | sp_open_account                 | teller, manager |
+| GET /branches                  | SELECT branch                   | all            |
+| GET /account-types             | SELECT account_type             | teller, manager |
+| GET /customers?q=...           | SELECT customer (by CNIC/name/phone) | teller, manager |
+| POST /accounts                 | sp_open_account (returns the new account_number) | teller, manager |
 | GET /accounts                  | v_account_summary / v_customer_accounts | all    |
 | PATCH /accounts/:id/status     | sp_set_account_status           | manager        |
 | POST /accounts/:id/joint-holders | sp_add_joint_holder           | teller, manager |
@@ -123,3 +147,22 @@ Expected: no deadlocks, no negative balance, and
 | Invalid or expired token         | 401  | missing/bad token                    |
 | Not allowed / does not belong to you | 403 | wrong role / not your account      |
 | validation message from zod      | 400  | bad amount/CNIC/date/missing field   |
+| Origin not allowed (browser only) | 403 | the site is not in CORS_ORIGIN       |
+
+## 7. Deployment notes (Aiven + Vercel)
+
+The deployed stack: backend on Vercel, MySQL on Aiven free tier.
+
+- **.env values live in the platform dashboard** - Vercel ignores a local
+  `.env`. Set `DB_*`, `JWT_SECRET`, and `CORS_ORIGIN` there, then redeploy.
+- Aiven requires encrypted connections: the backend sends `DB_SSL=true`,
+  which is handled inside `src/db.js`.
+- The Information panel of the Aiven service is the source of truth for
+  host/port; the database named there (e.g. `defaultdb`) is NOT always the
+  one holding the data - check `SHOW DATABASES;` if a table "doesn't exist"
+  while it clearly does in Workbench.
+- Aiven powers off free services that never get used, and restarts them on
+  demand - so expect occasional cold starts.
+- The Postman collection (`Banking_Postman_Collection.json`) has all
+  endpoints with sample bodies; the Login request stores the token
+  automatically for the rest of the collection.

@@ -104,7 +104,7 @@ deployed frontend).
 | POST /accounts/:id/cards       | sp_issue_card                   | teller, manager |
 | POST /accounts/:id/deposit     | sp_deposit                      | teller, manager |
 | POST /accounts/:id/withdraw    | sp_withdraw                     | teller, manager |
-| POST /transfers                | sp_transfer_funds               | all (owner of from-account) |
+| POST /transfers                | sp_transfer_funds               | all (owner of from-account). from/to may be an account **id** or an **ACC- account number**; the API resolves numbers via v_account_summary |
 | GET /accounts/:id/statement    | sp_get_statement                | all (owner)    |
 | POST /loans                    | sp_apply_loan                   | customer       |
 | GET /loans                     | v_loan_status                   | all (own for customer) |
@@ -166,3 +166,22 @@ The deployed stack: backend on Vercel, MySQL on Aiven free tier.
 - The Postman collection (`Banking_Postman_Collection.json`) has all
   endpoints with sample bodies; the Login request stores the token
   automatically for the rest of the collection.
+
+## 8. View column names are part of API contract
+
+The frontend reads specific column names from the reporting views.
+These are verified to match, with ONE intentional exception:
+
+| View                  | Columns consumed by the frontend                              |
+| --------------------- | ------------------------------------------------------------- |
+| v_branch_summary      | branch_id, branch_name, total_accounts, total_deposits, active_loans, total_loan_principal |
+| v_employee_activity   | employee_id, employee_name, transaction_year, transaction_month, total_transactions, total_amount |
+| v_daily_transactions  | txn_date, txn_type, total_transactions, total_amount          |
+
+- `v_daily_transactions` originally exposed the day column as `txn_day`.
+  The Aiven copy was replaced to alias it as `txn_date` (2026-11-02) so the
+  manager reports page shows dates. **If you re-run `03_views.sql`, apply the
+  same alias there** (`DATE(txn_date) AS txn_date`) or the daily report shows
+  dashes instead of dates again.
+- Golden rule: if a frontend table shows "—" for every row in a column,
+  first check `SHOW CREATE VIEW ...` - a column name drift is the usual cause.

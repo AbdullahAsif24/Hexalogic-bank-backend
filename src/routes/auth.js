@@ -46,9 +46,9 @@ router.post('/auth/login', async (req, res) => {
   const [user] = await query('SELECT * FROM user_account WHERE username=?', [
     body.username,
   ]);
-  // Note: SAME message for 'no such user' and 'wrong password'
+  // Note: SAME message for 'no such user', 'wrong password' AND 'disabled'
   // (so an attacker can't find out which usernames exist).
-  if (!user || !(await checkPw(body.password, user.password_hash))) {
+  if (!user || !user.is_active || !(await checkPw(body.password, user.password_hash))) {
     throw new HttpError(401, 'Invalid username or password');
   }
   res.json({ token: makeToken(user), role: user.role });

@@ -58,11 +58,23 @@ GRANT SELECT ON BankDB.customer_account     TO 'bank_app'@'%';
 GRANT SELECT ON BankDB.loan                 TO 'bank_app'@'%';
 ```
 
-Staff logins are NOT created by registration. Run `seed_staff.sql` (as root)
-to get `manager / manager123` and `teller / teller123`, then change those
-passwords (generate a bcrypt hash with
-`node -e "import('bcrypt').then(b=>console.log(b.hashSync('newPassword',10)))"`,
-then `UPDATE user_account SET password_hash='...' WHERE username='...';`).
+Staff logins are NOT created by registration.
+
+- Locally: run `seed_staff.sql` **then** `admin_migration.sql` (as root/at the
+  admin connection). Resulting logins: `manager / manager123`,
+  `teller / teller123`, `admin / admin123` - **change them all**
+  (generate a bcrypt hash with
+  `node -e "import('bcrypt').then(b=>console.log(b.hashSync('newPassword',10)))"`,
+  then `UPDATE user_account SET password_hash='...' WHERE username='...';`
+  or just use the admin UI's Reset password button).
+- The admin feature also widens `user_account.role` to
+  `ENUM('customer','teller','manager','admin')` and adds the
+  `is_active` column (`user_account` soft-disable) - both are inside
+  `admin_migration.sql`, same place the three custody procedures live:
+  `sp_create_staff`, `sp_set_user_active`, `sp_reset_user_password`.
+- Admin-specific rule: an Administrator can never disable **their own**
+  login (procedure-enforced), and disabled logins fail login with the same
+  generic error as a wrong password.
 
 ## 2. Run the backend
 
@@ -115,12 +127,21 @@ deployed frontend).
 | GET /reports/branch-summary    | v_branch_summary                | manager        |
 | GET /reports/daily             | v_daily_transactions            | manager        |
 | GET /reports/employee-activity | v_employee_activity             | manager        |
+| GET  /admin/staff              | SELECT employee + user_account  | admin          |
+| POST /admin/staff              | sp_create_staff                 | admin (re-checked in-procedure: designation = Administrator) |
+| PATCH  /admin/users/:id        | sp_set_user_active              | admin (cannot disable own login) |
+| POST /admin/users/:id/password | sp_reset_user_password          | admin          |
+| GET  /admin/audit?limit=       | SELECT audit_log (latest first) | admin          |
 
 Notes:
 - `employee_id` is taken from the login token for staff, `null` for online
   customer actions - never from the request body.
 - Money amounts in requests are strings like `"1500.50"` (a plain number is
   also accepted and converted).
+- **Roles: `customer`, `teller`, `manager`, `admin`.** Admin = platform
+  custody (staff logins, passwords, audit trail). A disabled login
+  (`user_account.is_active = 0`) gets the same generic 401 as a wrong
+  password, so account status cannot be probed.
 
 ## 5. Concurrency test
 

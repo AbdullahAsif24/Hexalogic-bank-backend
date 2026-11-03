@@ -12,6 +12,7 @@ import accountRoutes from './routes/accounts.js';
 import moneyRoutes from './routes/money.js';
 import loanRoutes from './routes/loans.js';
 import reportRoutes from './routes/reports.js';
+import adminRoutes from './routes/admin.js';
 
 const app = express();
 
@@ -38,7 +39,7 @@ app.use(express.json()); // read JSON bodies
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 // ----- all routes -----
-app.use(authRoutes, accountRoutes, moneyRoutes, loanRoutes, reportRoutes);
+app.use(authRoutes, accountRoutes, moneyRoutes, loanRoutes, reportRoutes, adminRoutes);
 
 // ----- 404 for unknown paths -----
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
